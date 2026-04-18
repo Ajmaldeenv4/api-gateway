@@ -1,0 +1,17 @@
+server:
+  listen: ":8080"
+  metrics_addr: ":9090"
+
+routes:
+  - id: echo
+    match:
+      prefix: "/"
+    upstreams:
+      - url: "http://localhost:9001"
+    auth:
+      type: none
+    rate_limit:
+      mode: local
+      rate: 50
+      burst: 100
+      key: ip

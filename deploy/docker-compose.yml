@@ -1,0 +1,135 @@
+name: api-gateway
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../internal/store/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+
+  # ── Demo backends ───────────────────────────────────────────────────────────
+  service-a:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+      args:
+        SERVICE: service-a
+    environment:
+      ADDR: ":9001"
+    ports:
+      - "9001:9001"
+
+  service-b:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+      args:
+        SERVICE: service-b
+    environment:
+      ADDR: ":9002"
+    ports:
+      - "9002:9002"
+
+  service-b2:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+      args:
+        SERVICE: service-b
+    environment:
+      ADDR: ":9002"
+    ports:
+      - "9003:9002"
+
+  # ── Gateway ─────────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"   # proxy
+      - "9090:9090"   # metrics
+    environment:
+      JWT_SECRET: dev-secret-change-me
+      OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:4317"
+      POSTGRES_DSN: "postgres://gateway:gateway@postgres:5432/gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      service-a:
+        condition: service_started
+      service-b:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Observability ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:

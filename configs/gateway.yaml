@@ -1,0 +1,69 @@
+server:
+  listen: ":8080"
+  metrics_addr: ":9090"
+  read_timeout: 10s
+  write_timeout: 30s
+  idle_timeout: 120s
+
+redis:
+  addr: "redis:6379"
+  db: 0
+
+routes:
+  - id: service-a
+    match:
+      prefix: "/a/"
+    strip_prefix: "/a"
+    upstreams:
+      - url: "http://service-a:9001"
+    load_balance: roundrobin
+    timeout: 10s
+    auth:
+      type: jwt
+      required: true
+      algorithms: [HS256]
+      secret_env: JWT_SECRET
+    rate_limit:
+      mode: redis
+      algorithm: token_bucket   # swap to sliding_window for stricter fairness
+      key: sub
+      rate: 10
+      burst: 20
+      fail_open: true
+    circuit_breaker:
+      enabled: true
+      min_requests: 5
+      failure_ratio: 0.5
+      timeout: 10s
+      interval: 60s
+    cache:
+      enabled: false            # enable for read-heavy routes
+
+  - id: service-b
+    match:
+      prefix: "/b/"
+    strip_prefix: "/b"
+    upstreams:
+      - url: "http://service-b:9002"
+        weight: 2
+      - url: "http://service-b2:9002"
+        weight: 1
+    load_balance: roundrobin
+    timeout: 10s
+    auth:
+      type: none
+    rate_limit:
+      mode: local
+      algorithm: token_bucket
+      key: ip
+      rate: 100
+      burst: 200
+    circuit_breaker:
+      enabled: true
+      min_requests: 5
+      failure_ratio: 0.6
+      timeout: 10s
+    cache:
+      enabled: true
+      ttl: 30s
+      vary_headers: [Accept-Language]

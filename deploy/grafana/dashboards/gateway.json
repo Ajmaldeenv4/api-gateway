@@ -1,0 +1,82 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "11.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "API Gateway — traffic, latency, errors, rate limiting, circuit breaker, upstream health",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests / sec (by route)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum(rate(gateway_http_requests_total[1m])) by (route)", "legendFormat": "{{route}}" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p50 / p95 / p99",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(gateway_http_request_duration_seconds_bucket[1m])) by (le, route))", "legendFormat": "p50 {{route}}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(gateway_http_request_duration_seconds_bucket[1m])) by (le, route))", "legendFormat": "p95 {{route}}" },
+        { "expr": "histogram_quantile(0.99, sum(rate(gateway_http_request_duration_seconds_bucket[1m])) by (le, route))", "legendFormat": "p99 {{route}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP Error rate (4xx + 5xx)",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum(rate(gateway_http_requests_total{code=~'[45]..'}[1m])) by (route, code)", "legendFormat": "{{route}} {{code}}" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate-limit throttles / sec",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum(rate(gateway_ratelimit_throttled_total[1m])) by (route)", "legendFormat": "{{route}}" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Circuit breaker state changes / sec",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum(rate(gateway_circuit_breaker_state_changes_total[1m])) by (route, from, to)", "legendFormat": "{{route}} {{from}}→{{to}}" }]
+    },
+    {
+      "type": "stat",
+      "title": "Open circuits",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 8 },
+      "targets": [{ "expr": "sum(gateway_circuit_breaker_open) by (route)", "legendFormat": "{{route}}" }],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } }
+    },
+    {
+      "type": "stat",
+      "title": "Upstream health",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 8 },
+      "targets": [{ "expr": "gateway_upstream_healthy", "legendFormat": "{{route}} {{upstream}}" }],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{ "value": 0, "color": "red" }, { "value": 1, "color": "green" }] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Upstream errors / sec",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum(rate(gateway_upstream_errors_total[1m])) by (route)", "legendFormat": "{{route}}" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Auth failures / sec",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum(rate(gateway_auth_failures_total[1m])) by (route, reason)", "legendFormat": "{{route}} ({{reason}})" }]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["gateway"],
+  "templating": { "list": [] },
+  "time": { "from": "now-15m", "to": "now" },
+  "title": "API Gateway",
+  "uid": "api-gateway-main",
+  "version": 2
+}
