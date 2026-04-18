@@ -47,11 +47,10 @@ func Build(cfg *config.Config, opts Options, logger *slog.Logger) (http.Handler,
 		mux.Use(otelMiddleware(routeLabel))
 	}
 	mux.Use(logging.Access(logger, routeLabel))
-	mux.Use(metricsm.Middleware(routeLabel))
 	mux.Use(middleware.RealIP)
 
 	// Health.
-	h := health.New(redisChecker(opts.RedisClient))
+	h := health.New(newRedisChecker(opts.RedisClient))
 	mux.Get("/healthz", h.Liveness)
 	mux.Get("/readyz", h.Readiness)
 
@@ -111,7 +110,7 @@ func Build(cfg *config.Config, opts Options, logger *slog.Logger) (http.Handler,
 		}
 
 		// Build handler chain (inner → outer):
-		//   proxy ← [cache] ← ratelimit ← auth ← route-label
+		//   proxy ← [cache] ← ratelimit ← auth ← route-label ← metrics
 		routeID := rt.ID
 		rlCfg := rt.RateLimit
 
@@ -122,6 +121,9 @@ func Build(cfg *config.Config, opts Options, logger *slog.Logger) (http.Handler,
 		handler = ratelimit.Middleware(lim, rlCfg, routeID)(handler)
 		handler = auth.Middleware(verifier, routeID)(handler)
 		handler = setRouteLabel(routeID)(handler)
+		// Metrics outermost so it records every request with the correct route label.
+		id := routeID
+		handler = metricsm.Middleware(func(_ *http.Request) string { return id })(handler)
 
 		mux.Handle(rt.Match.Prefix+"*", handler)
 		mux.Handle(rt.Match.Prefix, handler)
@@ -178,4 +180,4 @@ func (r *redisChecker) Ping(ctx context.Context) error {
 	}
 	return r.c.Ping(ctx).Err()
 }
-func redisChecker(c *redis.Client) health.Checker { return &redisChecker{c: c} }
+func newRedisChecker(c *redis.Client) health.Checker { return &redisChecker{c: c} }
