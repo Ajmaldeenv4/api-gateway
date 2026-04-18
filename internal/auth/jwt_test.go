@@ -61,7 +61,7 @@ func TestVerifier_Expired(t *testing.T) {
 
 func TestMiddleware_Required(t *testing.T) {
 	v := newVerifier(t, true)
-	h := Middleware(v, "test")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Middleware(v, "test")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -91,7 +91,7 @@ func TestMiddleware_Required(t *testing.T) {
 
 func TestMiddleware_Optional(t *testing.T) {
 	v := newVerifier(t, false)
-	h := Middleware(v, "test")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := Middleware(v, "test")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

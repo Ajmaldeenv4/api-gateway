@@ -129,7 +129,7 @@ func Build(cfg *config.Config, opts Options, logger *slog.Logger) (http.Handler,
 		mux.Handle(rt.Match.Prefix, handler)
 	}
 
-	mux.NotFound(func(w http.ResponseWriter, r *http.Request) {
+	mux.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "Not Found", http.StatusNotFound)
 	})
 

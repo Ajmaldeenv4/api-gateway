@@ -14,8 +14,9 @@ type ctxKey string
 
 const (
 	ctxKeyRequestID ctxKey = "request_id"
-	headerRequestID        = "X-Request-ID"
 )
+
+const headerRequestID = "X-Request-ID"
 
 // RequestID pulls X-Request-ID from the incoming request or mints a new one,
 // then stores it on the context and echoes it back on the response.

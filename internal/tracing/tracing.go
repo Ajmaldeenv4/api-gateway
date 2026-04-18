@@ -19,6 +19,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -29,7 +30,7 @@ import (
 func Init(ctx context.Context, serviceName, endpoint string) (func(context.Context) error, error) {
 	if endpoint == "" {
 		// No-op tracer — tracing disabled.
-		otel.SetTracerProvider(trace.NewNoopTracerProvider())
+		otel.SetTracerProvider(nooptrace.NewTracerProvider())
 		return func(context.Context) error { return nil }, nil
 	}
 
