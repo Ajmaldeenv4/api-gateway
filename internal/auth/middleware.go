@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/ajmal/api-gateway/internal/metrics"
@@ -17,12 +18,12 @@ func Middleware(v *Verifier, routeID string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, err := v.Verify(r.Header.Get("Authorization"))
 			if err != nil {
-				if !v.Required() && err == ErrMissing {
+				if !v.Required() && errors.Is(err, ErrMissing) {
 					next.ServeHTTP(w, r)
 					return
 				}
 				reason := "invalid"
-				if err == ErrMissing {
+				if errors.Is(err, ErrMissing) {
 					reason = "missing"
 				}
 				metrics.AuthFailures.WithLabelValues(routeID, reason).Inc()

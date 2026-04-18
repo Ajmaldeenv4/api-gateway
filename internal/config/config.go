@@ -93,7 +93,7 @@ type RateLimit struct {
 var envRe = regexp.MustCompile(`\$\{([A-Z0-9_]+)\}`)
 
 func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // path comes from a trusted CLI flag, not user input
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
