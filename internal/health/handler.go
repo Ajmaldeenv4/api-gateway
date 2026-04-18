@@ -24,7 +24,7 @@ func New(checkers ...Checker) *Handler {
 
 func (h *Handler) Liveness(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (h *Handler) Readiness(w http.ResponseWriter, r *http.Request) {
@@ -56,5 +56,5 @@ func (h *Handler) Readiness(w http.ResponseWriter, r *http.Request) {
 	if !allOK {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-	json.NewEncoder(w).Encode(body)
+	_ = json.NewEncoder(w).Encode(body)
 }

@@ -29,13 +29,3 @@ func (l *leastConn) Pick() (*url.URL, error) {
 	return l.urls[best], nil
 }
 
-// Release should be called when a request using the picked URL finishes.
-// Not wired into the Balancer interface yet — phase 2 hooks proxy middleware to call it.
-func (l *leastConn) Release(u *url.URL) {
-	for i, x := range l.urls {
-		if x.String() == u.String() {
-			atomic.AddInt64(&l.conns[i], -1)
-			return
-		}
-	}
-}

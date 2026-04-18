@@ -1,3 +1,5 @@
+// Package config loads and validates the gateway YAML configuration,
+// expanding ${ENV_VAR} placeholders and applying defaults.
 package config
 
 import (
@@ -76,7 +78,7 @@ type Auth struct {
 	Required   bool     `yaml:"required"`
 	Algorithms []string `yaml:"algorithms"`
 	SecretEnv  string   `yaml:"secret_env"`
-	JWKSUrl    string   `yaml:"jwks_url"`
+	JWKSURL    string   `yaml:"jwks_url"`
 }
 
 type RateLimit struct {

@@ -1,3 +1,5 @@
+// Package router resolves incoming HTTP requests to configured route entries
+// using longest-prefix matching.
 package router
 
 import (

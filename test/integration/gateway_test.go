@@ -79,7 +79,7 @@ func buildGateway(t *testing.T, backendURL string) http.Handler {
 	t.Setenv("GW_TEST_SECRET", testSecret)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := buildConfig(backendURL)
-	h, err := server.Build(cfg, nil, logger)
+	h, err := server.Build(cfg, server.Options{}, logger)
 	if err != nil {
 		t.Fatalf("build gateway: %v", err)
 	}

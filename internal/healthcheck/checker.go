@@ -128,7 +128,7 @@ func (c *Checker) probe(ctx context.Context, cfg Config) bool {
 	reqCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, probeURL, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, probeURL, nil) //nolint:gosec // URL is from gateway config, not user input
 	if err != nil {
 		return false
 	}
