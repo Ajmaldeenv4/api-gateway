@@ -28,4 +28,3 @@ func (l *leastConn) Pick() (*url.URL, error) {
 	l.mu.Unlock()
 	return l.urls[best], nil
 }
-

@@ -137,7 +137,7 @@ func (c *Checker) probe(ctx context.Context, cfg Config) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode < 500
 }
 
