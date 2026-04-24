@@ -87,7 +87,7 @@ func buildGateway(t *testing.T, backendURL string) http.Handler {
 }
 
 func TestHealthz(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 	defer backend.Close()
