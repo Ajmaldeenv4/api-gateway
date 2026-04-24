@@ -15,6 +15,14 @@ jobs:
         with:
           go-version: "1.22"
           cache: true
+      - name: gofmt check
+        run: |
+          bad=$(gofmt -l .)
+          if [ -n "$bad" ]; then
+            echo "gofmt issues in: $bad"
+            gofmt -d $bad
+            exit 1
+          fi
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
