@@ -22,12 +22,12 @@ var slidingWindowLua string
 // Trade-off: O(log N) writes per request (ZADD + ZREMRANGEBYSCORE).
 // Suitable for N <= tens of thousands of requests per window.
 type SlidingWindow struct {
-	client     *redis.Client
-	script     *redis.Script
-	windowMs   int64   // window size in milliseconds
-	limit      int     // max requests per window
-	failOpen   bool
-	prefix     string
+	client   *redis.Client
+	script   *redis.Script
+	windowMs int64 // window size in milliseconds
+	limit    int   // max requests per window
+	failOpen bool
+	prefix   string
 }
 
 // NewSlidingWindow creates a Redis sliding-window limiter.

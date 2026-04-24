@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"context"
 	"github.com/ajmal/api-gateway/internal/config"
 	"github.com/ajmal/api-gateway/internal/server"
-	"context"
 	"log/slog"
 
 	"github.com/golang-jwt/jwt/v5"

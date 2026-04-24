@@ -44,11 +44,11 @@ func (s *status) ok() bool { return atomic.LoadInt32(&s.v) == 1 }
 
 // Config for a single upstream probe.
 type Config struct {
-	URL      string        // upstream base URL
-	Path     string        // probe path, default "/healthz"
-	Interval time.Duration // default 10s
-	Timeout  time.Duration // per-probe timeout, default 3s
-	Threshold int          // consecutive failures to mark unhealthy, default 2
+	URL       string        // upstream base URL
+	Path      string        // probe path, default "/healthz"
+	Interval  time.Duration // default 10s
+	Timeout   time.Duration // per-probe timeout, default 3s
+	Threshold int           // consecutive failures to mark unhealthy, default 2
 }
 
 // Checker runs active health probes for a set of upstreams and exposes their

@@ -33,16 +33,16 @@ type RedisConfig struct {
 }
 
 type Route struct {
-	ID            string        `yaml:"id"`
-	Match         Match         `yaml:"match"`
-	StripPrefix   string        `yaml:"strip_prefix"`
-	Upstreams     []Upstream    `yaml:"upstreams"`
-	LoadBalance   string        `yaml:"load_balance"`
-	Auth          Auth          `yaml:"auth"`
-	RateLimit     RateLimit     `yaml:"rate_limit"`
+	ID             string         `yaml:"id"`
+	Match          Match          `yaml:"match"`
+	StripPrefix    string         `yaml:"strip_prefix"`
+	Upstreams      []Upstream     `yaml:"upstreams"`
+	LoadBalance    string         `yaml:"load_balance"`
+	Auth           Auth           `yaml:"auth"`
+	RateLimit      RateLimit      `yaml:"rate_limit"`
 	CircuitBreaker CircuitBreaker `yaml:"circuit_breaker"`
-	Cache         Cache         `yaml:"cache"`
-	Timeout       time.Duration `yaml:"timeout"`
+	Cache          Cache          `yaml:"cache"`
+	Timeout        time.Duration  `yaml:"timeout"`
 }
 
 // CircuitBreaker config per route. Enabled = false disables the breaker.

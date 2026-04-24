@@ -1,6 +1,7 @@
 // Package server wires the chi router, all middleware, and per-route proxies.
 // Middleware order (load-bearing):
-//   recover → request-id → tracing → logging → metrics → auth → ratelimit → [cache] → proxy
+//
+//	recover → request-id → tracing → logging → metrics → auth → ratelimit → [cache] → proxy
 package server
 
 import (
@@ -31,9 +32,9 @@ type routeCtxKey struct{}
 
 // Options holds optional phase-2 dependencies. All fields are nil-safe.
 type Options struct {
-	RedisClient    *redis.Client
-	HealthChecker  *healthcheck.Checker
-	OTelEnabled    bool
+	RedisClient   *redis.Client
+	HealthChecker *healthcheck.Checker
+	OTelEnabled   bool
 }
 
 // Build constructs and returns the main gateway http.Handler.

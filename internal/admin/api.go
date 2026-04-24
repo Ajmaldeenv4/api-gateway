@@ -1,10 +1,11 @@
 // Package admin exposes a simple REST API for managing gateway routes at runtime.
 // Endpoints (all under /admin/):
-//   GET    /admin/routes          — list all routes
-//   GET    /admin/routes/{id}     — get one route
-//   POST   /admin/routes          — create / replace route (full body)
-//   DELETE /admin/routes/{id}     — soft-delete route
-//   GET    /admin/health          — db + redis ping
+//
+//	GET    /admin/routes          — list all routes
+//	GET    /admin/routes/{id}     — get one route
+//	POST   /admin/routes          — create / replace route (full body)
+//	DELETE /admin/routes/{id}     — soft-delete route
+//	GET    /admin/health          — db + redis ping
 package admin
 
 import (

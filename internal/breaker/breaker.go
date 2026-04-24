@@ -1,10 +1,11 @@
 // Package breaker wraps sony/gobreaker with Prometheus state-change metrics.
 //
 // State machine (gobreaker):
-//   Closed ──(failures > threshold)──▶ Open
-//   Open   ──(timeout elapsed)──────▶ Half-Open
-//   Half-Open ──(success)───────────▶ Closed
-//   Half-Open ──(failure)───────────▶ Open
+//
+//	Closed ──(failures > threshold)──▶ Open
+//	Open   ──(timeout elapsed)──────▶ Half-Open
+//	Half-Open ──(success)───────────▶ Closed
+//	Half-Open ──(failure)───────────▶ Open
 package breaker
 
 import (

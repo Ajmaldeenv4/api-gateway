@@ -10,8 +10,8 @@ import (
 // can label the counter correctly.
 type statusRecorder struct {
 	http.ResponseWriter
-	code    int
-	wrote   bool
+	code  int
+	wrote bool
 }
 
 func (s *statusRecorder) WriteHeader(code int) {

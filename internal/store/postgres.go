@@ -125,8 +125,8 @@ func (d *DB) hydrateRoute(ctx context.Context, r *config.Route) error {
 	if err == nil {
 		r.CircuitBreaker = config.CircuitBreaker{
 			Enabled: cbEnabled, MaxRequests: cbMaxReq,
-			Interval: time.Duration(cbIntervalMs) * time.Millisecond,
-			Timeout:  time.Duration(cbTimeoutMs) * time.Millisecond,
+			Interval:    time.Duration(cbIntervalMs) * time.Millisecond,
+			Timeout:     time.Duration(cbTimeoutMs) * time.Millisecond,
 			MinRequests: cbMinReq, FailureRatio: cbRatio,
 		}
 	}
@@ -140,8 +140,8 @@ func (d *DB) hydrateRoute(ctx context.Context, r *config.Route) error {
 	).Scan(&cacheEnabled, &cacheTTLMs, &varyHeaders)
 	if err == nil {
 		r.Cache = config.Cache{
-			Enabled: cacheEnabled,
-			TTL:     time.Duration(cacheTTLMs) * time.Millisecond,
+			Enabled:     cacheEnabled,
+			TTL:         time.Duration(cacheTTLMs) * time.Millisecond,
 			VaryHeaders: varyHeaders,
 		}
 	}
