@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"context"
+	"log/slog"
+
 	"github.com/ajmal/api-gateway/internal/config"
 	"github.com/ajmal/api-gateway/internal/server"
-	"log/slog"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
