@@ -314,7 +314,7 @@ func TestBuild_Redis_SlidingWindow(t *testing.T) {
 
 func TestMiddleware_NilLimiter_Passthrough(t *testing.T) {
 	called := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
@@ -329,7 +329,7 @@ func TestMiddleware_NilLimiter_Passthrough(t *testing.T) {
 
 func TestMiddleware_ModeOff_Passthrough(t *testing.T) {
 	called := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	})
 
@@ -345,7 +345,7 @@ func TestMiddleware_ModeOff_Passthrough(t *testing.T) {
 func TestMiddleware_Allow(t *testing.T) {
 	lim := NewLocal(100, 100)
 	cfg := config.RateLimit{Mode: "local", Key: "ip"}
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	h := Middleware(lim, cfg, "r")(next)
 	w := httptest.NewRecorder()
@@ -361,7 +361,7 @@ func TestMiddleware_Allow(t *testing.T) {
 func TestMiddleware_Throttle_Returns429(t *testing.T) {
 	lim := NewLocal(1, 1) // burst=1 so second request is throttled
 	cfg := config.RateLimit{Mode: "local", Key: "ip"}
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	h := Middleware(lim, cfg, "r")(next)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
