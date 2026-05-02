@@ -23,6 +23,10 @@ curl -s http://localhost:8080/b/ping      # no auth required on /b/
 
 Prometheus: http://localhost:9091 — Grafana: http://localhost:3000 (admin/admin).
 
+## Dashboard
+
+![API Gateway Grafana Dashboard](docs/grafana-dashboard.png)
+
 ## Features (phase 1)
 
 - HTTP reverse proxy with per-route upstream pools
