@@ -17,7 +17,8 @@ type statusRecorder struct {
 func (s *statusRecorder) WriteHeader(code int) {
 	if !s.wrote {
 		s.code = code
-		s.wrote = true
+		// Informational responses (103) come before the real status.
+		s.wrote = code >= http.StatusOK || code == http.StatusSwitchingProtocols
 	}
 	s.ResponseWriter.WriteHeader(code)
 }
@@ -29,6 +30,9 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	}
 	return s.ResponseWriter.Write(b)
 }
+
+// Unwrap lets http.ResponseController reach Flush and Hijack underneath.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 // Middleware records request count + latency for any handler it wraps.
 // routeFn returns the route label for the given request (e.g. from context).

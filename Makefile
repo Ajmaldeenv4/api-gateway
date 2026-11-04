@@ -2,12 +2,14 @@
 
 GO ?= go
 BIN := bin/gateway
+# gateway.yaml uses Docker service names, so plain `make run` uses the local one.
+CONFIG ?= configs/gateway.example.yaml
 
 build:
 	$(GO) build -o $(BIN) ./cmd/gateway
 
 run:
-	$(GO) run ./cmd/gateway -config configs/gateway.yaml
+	$(GO) run ./cmd/gateway -config $(CONFIG)
 
 test:
 	$(GO) test -race -count=1 ./...

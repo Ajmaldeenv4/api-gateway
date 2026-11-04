@@ -1,7 +1,10 @@
 // Package cache provides a Redis-backed HTTP response cache middleware.
 // Only GET/HEAD responses with 2xx status and a positive TTL are stored.
 // Cache-Control: no-store / no-cache on the request bypasses the cache.
-// Vary headers are folded into the cache key.
+//
+// Vary headers and the caller's credentials (Authorization, Cookie) are folded
+// into the key, so one user's response is never served to another. Responses
+// marked private or no-store, or carrying Set-Cookie, are not stored.
 package cache
 
 import (
@@ -13,7 +16,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,15 +24,15 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func init() {
-	gob.Register(map[string][]string{})
-}
+// maxBodySize keeps very large responses out of Redis.
+const maxBodySize = 5 << 20
 
 // entry is what gets serialised into Redis.
 type entry struct {
-	Status  int
-	Headers map[string][]string
-	Body    []byte
+	Status   int
+	Headers  http.Header
+	Body     []byte
+	StoredAt time.Time
 }
 
 // Store is a Redis-backed cache.
@@ -42,6 +44,7 @@ type Store struct {
 	logger      *slog.Logger
 }
 
+// New returns a Store whose entries default to ttl.
 func New(client *redis.Client, ttl time.Duration, varyHeaders []string, prefix string, logger *slog.Logger) *Store {
 	if prefix == "" {
 		prefix = "cache:"
@@ -76,63 +79,61 @@ func (s *Store) Middleware(routeID string) func(http.Handler) http.Handler {
 			ctx := r.Context()
 
 			if cached, ok := s.get(ctx, key); ok {
-				// Cache HIT — copy stored response.
+				// Cache HIT — replay the stored response.
 				for k, vv := range cached.Headers {
-					for _, v := range vv {
-						w.Header().Add(k, v)
-					}
+					w.Header()[k] = vv
 				}
 				w.Header().Set("X-Cache", "HIT")
-				w.Header().Set("Age", s.age(ctx, key))
-				if r.Method == http.MethodHead {
-					w.WriteHeader(cached.Status)
-					return
-				}
+				w.Header().Set("Age", strconv.FormatInt(int64(time.Since(cached.StoredAt).Seconds()), 10))
 				w.WriteHeader(cached.Status)
-				w.Write(cached.Body) //nolint:errcheck
-				return
-			}
-
-			// Cache MISS — serve from upstream, capture response.
-			rec := httptest.NewRecorder()
-			next.ServeHTTP(rec, r)
-			result := rec.Result()
-
-			// Copy to real writer.
-			for k, vv := range result.Header {
-				for _, v := range vv {
-					w.Header().Add(k, v)
+				if r.Method != http.MethodHead {
+					w.Write(cached.Body) //nolint:errcheck
 				}
+				return
 			}
+
+			// Cache MISS — the response streams to the client and is copied as
+			// it passes, so a miss costs no extra latency.
 			w.Header().Set("X-Cache", "MISS")
-			w.WriteHeader(result.StatusCode)
-			body := rec.Body.Bytes()
-			w.Write(body) //nolint:errcheck
+			rec := &capture{ResponseWriter: w}
+			next.ServeHTTP(rec, r)
+			rec.finish()
 
-			// Only cache 2xx responses.
-			if result.StatusCode < 200 || result.StatusCode >= 300 {
+			ttl, ok := s.ttlFor(rec)
+			if !ok {
 				return
 			}
-			// Respect upstream Cache-Control: no-store.
-			upCC := result.Header.Get("Cache-Control")
-			if strings.Contains(upCC, "no-store") {
-				return
-			}
-			ttl := s.ttl
-			if maxAge := extractMaxAge(upCC); maxAge > 0 {
-				ttl = time.Duration(maxAge) * time.Second
-			}
-
 			e := &entry{
-				Status:  result.StatusCode,
-				Headers: result.Header,
-				Body:    body,
+				Status:   rec.status,
+				Headers:  rec.header,
+				Body:     rec.body.Bytes(),
+				StoredAt: time.Now(),
 			}
 			if err := s.set(ctx, key, e, ttl); err != nil {
 				s.logger.Warn("cache set failed", "route", routeID, "err", err)
 			}
 		})
 	}
+}
+
+// ttlFor decides whether a response may be stored, and for how long.
+func (s *Store) ttlFor(rec *capture) (time.Duration, bool) {
+	if rec.overflow || rec.status < 200 || rec.status >= 300 {
+		return 0, false
+	}
+	if rec.header.Get("Set-Cookie") != "" || rec.header.Get("Vary") == "*" {
+		return 0, false
+	}
+	cc := strings.ToLower(rec.header.Get("Cache-Control"))
+	for _, directive := range []string{"no-store", "no-cache", "private"} {
+		if strings.Contains(cc, directive) {
+			return 0, false
+		}
+	}
+	if maxAge, ok := extractMaxAge(cc); ok {
+		return time.Duration(maxAge) * time.Second, maxAge > 0
+	}
+	return s.ttl, true
 }
 
 func (s *Store) cacheKey(routeID string, r *http.Request) string {
@@ -142,6 +143,11 @@ func (s *Store) cacheKey(routeID string, r *http.Request) string {
 		parts = append(parts, h+":"+r.Header.Get(h))
 	}
 	sort.Strings(parts[3:]) // stable order for vary headers
+	parts = append(parts,
+		"accept-encoding:"+r.Header.Get("Accept-Encoding"),
+		"authorization:"+r.Header.Get("Authorization"),
+		"cookie:"+r.Header.Get("Cookie"),
+	)
 	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return s.prefix + hex.EncodeToString(hash[:16])
 }
@@ -166,29 +172,16 @@ func (s *Store) set(ctx context.Context, key string, e *entry, ttl time.Duration
 	return s.client.Set(ctx, key, buf.Bytes(), ttl).Err()
 }
 
-func (s *Store) age(ctx context.Context, key string) string {
-	ttl, err := s.client.TTL(ctx, key).Result()
-	if err != nil || ttl < 0 {
-		return "0"
-	}
-	age := int64(s.ttl.Seconds()) - int64(ttl.Seconds())
-	if age < 0 {
-		age = 0
-	}
-	return strconv.FormatInt(age, 10)
-}
-
-func extractMaxAge(cc string) int {
+func extractMaxAge(cc string) (int, bool) {
 	for _, part := range strings.Split(cc, ",") {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(part, "max-age=") {
-			val, err := strconv.Atoi(strings.TrimPrefix(part, "max-age="))
-			if err == nil && val > 0 {
-				return val
+			if val, err := strconv.Atoi(strings.TrimPrefix(part, "max-age=")); err == nil {
+				return val, true
 			}
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // Invalidate removes a cache entry by route + request (e.g. after a mutation).
@@ -211,3 +204,52 @@ func (s *Store) Flush(ctx context.Context) error {
 	}
 	return s.client.Del(ctx, keys...).Err()
 }
+
+// capture copies a response as it passes through to the client.
+type capture struct {
+	http.ResponseWriter
+	status   int
+	header   http.Header
+	body     bytes.Buffer
+	overflow bool
+}
+
+func (c *capture) WriteHeader(code int) {
+	if c.status == 0 && code >= http.StatusOK {
+		c.record(code)
+	}
+	c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *capture) record(code int) {
+	c.status = code
+	c.header = c.Header().Clone()
+	// These describe this one exchange, not the resource.
+	c.header.Del("X-Cache")
+	c.header.Del("X-Request-Id")
+}
+
+// finish covers a handler that returned without writing, an implicit 200.
+func (c *capture) finish() {
+	if c.status == 0 {
+		c.record(http.StatusOK)
+	}
+}
+
+func (c *capture) Write(b []byte) (int, error) {
+	if c.status == 0 {
+		c.WriteHeader(http.StatusOK)
+	}
+	if !c.overflow {
+		if c.body.Len()+len(b) > maxBodySize {
+			c.overflow = true
+			c.body.Reset()
+		} else {
+			c.body.Write(b)
+		}
+	}
+	return c.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach Flush and Hijack underneath.
+func (c *capture) Unwrap() http.ResponseWriter { return c.ResponseWriter }
