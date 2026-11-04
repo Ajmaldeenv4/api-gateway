@@ -7,36 +7,34 @@ import (
 
 // Smooth weighted round-robin (Nginx algorithm).
 type weighted struct {
+	noRelease
+	pool
 	mu      sync.Mutex
-	urls    []*url.URL
 	weights []int
 	current []int
-	total   int
 }
 
-func newWeighted(urls []*url.URL, weights []int) *weighted {
-	total := 0
-	for _, w := range weights {
-		total += w
-	}
+func newWeighted(p pool, weights []int) *weighted {
 	return &weighted{
-		urls:    urls,
+		pool:    p,
 		weights: weights,
-		current: make([]int, len(urls)),
-		total:   total,
+		current: make([]int, len(p.urls)),
 	}
 }
 
 func (w *weighted) Pick() (*url.URL, error) {
+	c := w.candidates()
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	best := -1
-	for i := range w.urls {
+	best, total := -1, 0
+	for _, i := range c {
 		w.current[i] += w.weights[i]
+		total += w.weights[i]
 		if best == -1 || w.current[i] > w.current[best] {
 			best = i
 		}
 	}
-	w.current[best] -= w.total
+	w.current[best] -= total
 	return w.urls[best], nil
 }

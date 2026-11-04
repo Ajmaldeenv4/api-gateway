@@ -83,8 +83,10 @@ services:
     ports:
       - "8080:8080"   # proxy
       - "9090:9090"   # metrics
+      - "127.0.0.1:9092:9092"   # admin API, local only
     environment:
       JWT_SECRET: dev-secret-change-me
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token-change-me}
       OTEL_EXPORTER_OTLP_ENDPOINT: "jaeger:4317"
       POSTGRES_DSN: "postgres://gateway:gateway@postgres:5432/gateway"
     depends_on:
@@ -100,7 +102,8 @@ services:
         condition: service_started
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      # The distroless image has no shell or wget, so the gateway probes itself.
+      test: ["CMD", "/gateway", "-healthcheck", "http://localhost:8080/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3

@@ -4,8 +4,9 @@
 // Design:
 //   - One goroutine per upstream, polling on Interval.
 //   - Status is stored in a sync.Map keyed by upstream URL.
-//   - The load balancer wrapper (HealthAwareBalancer) skips unhealthy entries,
-//     falling back to all upstreams if every one is unhealthy (fail-open).
+//   - The balancers consult Healthy through loadbalance.HealthFunc and skip
+//     unhealthy entries, falling back to all upstreams if every one is
+//     unhealthy (fail-open).
 //   - Prometheus gauges expose per-upstream health.
 package healthcheck
 
@@ -13,6 +14,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -124,7 +126,7 @@ func (c *Checker) loop(ctx context.Context, routeID string, cfg Config, s *statu
 }
 
 func (c *Checker) probe(ctx context.Context, cfg Config) bool {
-	probeURL := cfg.URL + cfg.Path
+	probeURL := strings.TrimRight(cfg.URL, "/") + cfg.Path
 	reqCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
 

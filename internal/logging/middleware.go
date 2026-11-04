@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ajmal/api-gateway/internal/clientip"
 )
 
 type ctxKey string
@@ -19,13 +21,14 @@ const (
 const headerRequestID = "X-Request-ID"
 
 // RequestID pulls X-Request-ID from the incoming request or mints a new one,
-// then stores it on the context and echoes it back on the response.
+// stores it on the context, echoes it on the response and forwards it upstream.
 func RequestID() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id := r.Header.Get(headerRequestID)
 			if id == "" {
 				id = uuid.NewString()
+				r.Header.Set(headerRequestID, id)
 			}
 			w.Header().Set(headerRequestID, id)
 			ctx := context.WithValue(r.Context(), ctxKeyRequestID, id)
@@ -52,7 +55,12 @@ func (s *statusRecorder) WriteHeader(c int) {
 	s.ResponseWriter.WriteHeader(c)
 }
 
-// Access emits one structured log line per request.
+// Unwrap lets http.ResponseController reach Flush and Hijack underneath.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// Access emits one structured log line per request. routeFn runs against the
+// request as this middleware received it, so the route must already be on the
+// context by the time Access is reached.
 func Access(logger *slog.Logger, routeFn func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +73,7 @@ func Access(logger *slog.Logger, routeFn func(*http.Request) string) func(http.H
 				slog.String("path", r.URL.Path),
 				slog.String("route", routeFn(r)),
 				slog.Int("status", rec.code),
-				slog.String("remote", clientIP(r)),
+				slog.String("remote", clientip.From(r)),
 				slog.Duration("latency", time.Since(start)),
 				slog.String("user_agent", r.UserAgent()),
 			)
@@ -74,11 +82,16 @@ func Access(logger *slog.Logger, routeFn func(*http.Request) string) func(http.H
 }
 
 // Recover turns panics in downstream handlers into 500s and logs them.
+// http.ErrAbortHandler is re-raised: it is how ReverseProxy tells net/http to
+// cut a connection whose response is already partly written.
 func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
+					if rec == http.ErrAbortHandler {
+						panic(rec)
+					}
 					logger.Error("panic recovered",
 						"request_id", FromContext(r.Context()),
 						"panic", rec,
@@ -89,11 +102,4 @@ func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		return ip
-	}
-	return r.RemoteAddr
 }

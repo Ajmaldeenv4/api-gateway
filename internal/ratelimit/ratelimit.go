@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/ajmal/api-gateway/internal/auth"
+	"github.com/ajmal/api-gateway/internal/clientip"
 	"github.com/ajmal/api-gateway/internal/config"
 )
 
@@ -29,22 +30,15 @@ func KeyFor(cfg config.RateLimit, r *http.Request) string {
 		if s := auth.Subject(r.Context()); s != "" {
 			return "sub:" + s
 		}
-		return "ip:" + clientIP(r)
+		return "ip:" + clientip.From(r)
 	case "api_key":
 		if k := r.Header.Get("X-API-Key"); k != "" {
 			return "apikey:" + k
 		}
-		return "ip:" + clientIP(r)
+		return "ip:" + clientip.From(r)
 	default: // ip
-		return "ip:" + clientIP(r)
+		return "ip:" + clientip.From(r)
 	}
-}
-
-func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		return ip
-	}
-	return r.RemoteAddr
 }
 
 // ErrNotConfigured indicates the route has no rate limiter.

@@ -179,18 +179,20 @@ func TestKeyFor_DefaultIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "1.2.3.4:5678"
 
-	if got := KeyFor(cfg, req); got != "ip:1.2.3.4:5678" {
-		t.Errorf("got %q, want ip:1.2.3.4:5678", got)
+	if got := KeyFor(cfg, req); got != "ip:1.2.3.4" {
+		t.Errorf("got %q, want ip:1.2.3.4", got)
 	}
 }
 
-func TestKeyFor_XForwardedFor(t *testing.T) {
+// Without a trusted proxy in front, forwarding headers are client-controlled.
+func TestKeyFor_IgnoresForwardedHeaderFromUntrustedPeer(t *testing.T) {
 	cfg := config.RateLimit{Key: "ip"}
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "1.2.3.4:5678"
 	req.Header.Set("X-Forwarded-For", "10.0.0.1")
 
-	if got := KeyFor(cfg, req); got != "ip:10.0.0.1" {
-		t.Errorf("got %q, want ip:10.0.0.1", got)
+	if got := KeyFor(cfg, req); got != "ip:1.2.3.4" {
+		t.Errorf("got %q, want ip:1.2.3.4", got)
 	}
 }
 
@@ -210,8 +212,8 @@ func TestKeyFor_APIKey_FallsBackToIP(t *testing.T) {
 	req.RemoteAddr = "9.9.9.9:1234"
 	// no X-API-Key header
 
-	if got := KeyFor(cfg, req); got != "ip:9.9.9.9:1234" {
-		t.Errorf("got %q, want ip:9.9.9.9:1234", got)
+	if got := KeyFor(cfg, req); got != "ip:9.9.9.9" {
+		t.Errorf("got %q, want ip:9.9.9.9", got)
 	}
 }
 
@@ -221,8 +223,8 @@ func TestKeyFor_Sub_FallsBackToIP(t *testing.T) {
 	req.RemoteAddr = "5.5.5.5:80"
 	// no JWT subject in context
 
-	if got := KeyFor(cfg, req); got != "ip:5.5.5.5:80" {
-		t.Errorf("got %q, want ip:5.5.5.5:80", got)
+	if got := KeyFor(cfg, req); got != "ip:5.5.5.5" {
+		t.Errorf("got %q, want ip:5.5.5.5", got)
 	}
 }
 

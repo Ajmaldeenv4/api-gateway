@@ -1,5 +1,5 @@
 // Integration tests spin up the gateway + a real test backend using httptest.
-// Redis-backed rate limit tests are skipped unless REDIS_ADDR is set.
+// Redis is provided in-process by miniredis (see regression_test.go).
 package integration
 
 import (
@@ -10,14 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"context"
 	"log/slog"
 
 	"github.com/ajmal/api-gateway/internal/config"
 	"github.com/ajmal/api-gateway/internal/server"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/redis/go-redis/v9"
 )
 
 const testSecret = "integration-secret"
@@ -169,18 +167,4 @@ func TestLocalRateLimit_Throttles(t *testing.T) {
 	if throttled == 0 {
 		t.Fatal("expected some requests to be throttled (burst=3)")
 	}
-}
-
-func TestRedisRateLimit(t *testing.T) {
-	addr := os.Getenv("REDIS_ADDR")
-	if addr == "" {
-		t.Skip("REDIS_ADDR not set — skipping Redis integration test")
-	}
-	client := redis.NewClient(&redis.Options{Addr: addr})
-	ctx := context.Background()
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Skipf("redis unavailable: %v", err)
-	}
-	_ = client.FlushDB(ctx) // clean slate for rate-limit keys
-	t.Log("Redis integration test: PASS (Redis is reachable)")
 }

@@ -5,37 +5,76 @@ package store
 
 import (
 	"context"
+	_ "embed" // schema.sql
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ajmal/api-gateway/internal/config"
 )
+
+//go:embed schema.sql
+var schema string
+
+// ErrNotFound is returned when a route does not exist or is already deleted.
+var ErrNotFound = errors.New("route not found")
 
 // DB wraps a pgxpool connection and exposes config queries.
 type DB struct {
 	pool *pgxpool.Pool
 }
 
+// Connect opens a pool and checks that the database answers.
 func Connect(ctx context.Context, dsn string) (*DB, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("pgxpool: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("postgres ping: %w", err)
 	}
 	return &DB{pool: pool}, nil
 }
 
+// Close releases the connection pool.
 func (d *DB) Close() { d.pool.Close() }
+
+// Migrate applies the idempotent schema.
+func (d *DB) Migrate(ctx context.Context) error {
+	if _, err := d.pool.Exec(ctx, schema); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
+	}
+	return nil
+}
+
+// Seed stores routes if the database has never held any, returning how many it
+// wrote. Soft-deleted rows count as history, so deleting every route at runtime
+// does not bring the YAML routes back on the next start.
+func (d *DB) Seed(ctx context.Context, routes []config.Route) (int, error) {
+	var existing int
+	if err := d.pool.QueryRow(ctx, `SELECT count(*) FROM routes`).Scan(&existing); err != nil {
+		return 0, fmt.Errorf("count routes: %w", err)
+	}
+	if existing > 0 {
+		return 0, nil
+	}
+	for _, r := range routes {
+		if err := d.UpsertRoute(ctx, r); err != nil {
+			return 0, fmt.Errorf("seed route %s: %w", r.ID, err)
+		}
+	}
+	return len(routes), nil
+}
 
 // LoadRoutes returns all enabled routes from Postgres, fully assembled.
 func (d *DB) LoadRoutes(ctx context.Context) ([]config.Route, error) {
 	rows, err := d.pool.Query(ctx, `
-		SELECT id, prefix, strip_prefix, load_balance, timeout_ms
-		FROM routes WHERE enabled = TRUE ORDER BY length(prefix) DESC`)
+		SELECT id, prefix, methods, strip_prefix, load_balance, timeout_ms
+		FROM routes WHERE enabled = TRUE ORDER BY length(prefix) DESC, id`)
 	if err != nil {
 		return nil, fmt.Errorf("routes query: %w", err)
 	}
@@ -45,7 +84,7 @@ func (d *DB) LoadRoutes(ctx context.Context) ([]config.Route, error) {
 	for rows.Next() {
 		var r config.Route
 		var timeoutMs int64
-		if err := rows.Scan(&r.ID, &r.Match.Prefix, &r.StripPrefix, &r.LoadBalance, &timeoutMs); err != nil {
+		if err := rows.Scan(&r.ID, &r.Match.Prefix, &r.Match.Methods, &r.StripPrefix, &r.LoadBalance, &timeoutMs); err != nil {
 			return nil, err
 		}
 		r.Timeout = time.Duration(timeoutMs) * time.Millisecond
@@ -60,113 +99,114 @@ func (d *DB) LoadRoutes(ctx context.Context) ([]config.Route, error) {
 		if err := d.hydrateRoute(ctx, &routes[i]); err != nil {
 			return nil, fmt.Errorf("route %s: %w", routes[i].ID, err)
 		}
+		routes[i].ApplyDefaults()
 	}
 	return routes, nil
 }
 
+// hydrateRoute fills in the sub-tables. A missing row means that policy is unset.
+// Any other error must fail the load: treating it as "unset" would turn a
+// database hiccup into a JWT-protected route with no auth.
 func (d *DB) hydrateRoute(ctx context.Context, r *config.Route) error {
-	// Upstreams.
-	uRows, err := d.pool.Query(ctx,
-		`SELECT url, weight FROM upstreams WHERE route_id = $1`, r.ID)
-	if err != nil {
-		return err
-	}
-	defer uRows.Close()
-	for uRows.Next() {
-		var u config.Upstream
-		if err := uRows.Scan(&u.URL, &u.Weight); err != nil {
-			return err
-		}
-		r.Upstreams = append(r.Upstreams, u)
+	if err := d.loadUpstreams(ctx, r); err != nil {
+		return fmt.Errorf("upstreams: %w", err)
 	}
 
 	// Auth.
-	var authType string
-	var required bool
-	var algorithms []string
-	var secretEnv string
-	err = d.pool.QueryRow(ctx,
-		`SELECT type, required, algorithms, secret_env FROM route_auth WHERE route_id = $1`, r.ID,
-	).Scan(&authType, &required, &algorithms, &secretEnv)
-	if err == nil {
-		r.Auth = config.Auth{
-			Type: authType, Required: required,
-			Algorithms: algorithms, SecretEnv: secretEnv,
-		}
-	} else {
-		r.Auth = config.Auth{Type: "none"}
+	var a config.Auth
+	err := d.pool.QueryRow(ctx, `
+		SELECT type, required, algorithms, secret_env, public_key_env, jwks_url, issuer, audience
+		FROM route_auth WHERE route_id = $1`, r.ID,
+	).Scan(&a.Type, &a.Required, &a.Algorithms, &a.SecretEnv, &a.PublicKeyEnv, &a.JWKSURL, &a.Issuer, &a.Audience)
+	if err := absent(err); err != nil {
+		return fmt.Errorf("auth: %w", err)
 	}
+	r.Auth = a
 
 	// Rate limit.
-	var rlMode, rlAlg, rlKey string
-	var rlRate float64
-	var rlBurst int
+	var rl config.RateLimit
 	var rlFailOpen bool
 	err = d.pool.QueryRow(ctx,
 		`SELECT mode, algorithm, key_by, rate, burst, fail_open FROM route_rate_limit WHERE route_id = $1`, r.ID,
-	).Scan(&rlMode, &rlAlg, &rlKey, &rlRate, &rlBurst, &rlFailOpen)
+	).Scan(&rl.Mode, &rl.Algorithm, &rl.Key, &rl.Rate, &rl.Burst, &rlFailOpen)
 	if err == nil {
-		r.RateLimit = config.RateLimit{
-			Mode: rlMode, Algorithm: rlAlg, Key: rlKey,
-			Rate: rlRate, Burst: rlBurst, FailOpen: &rlFailOpen,
-		}
+		rl.FailOpen = &rlFailOpen
 	}
+	if err := absent(err); err != nil {
+		return fmt.Errorf("rate limit: %w", err)
+	}
+	r.RateLimit = rl
 
 	// Circuit breaker.
-	var cbEnabled bool
-	var cbMaxReq uint32
+	var cb config.CircuitBreaker
 	var cbIntervalMs, cbTimeoutMs int64
-	var cbMinReq uint32
-	var cbRatio float64
 	err = d.pool.QueryRow(ctx,
 		`SELECT enabled, max_requests, interval_ms, timeout_ms, min_requests, failure_ratio
 		 FROM route_circuit_breaker WHERE route_id = $1`, r.ID,
-	).Scan(&cbEnabled, &cbMaxReq, &cbIntervalMs, &cbTimeoutMs, &cbMinReq, &cbRatio)
-	if err == nil {
-		r.CircuitBreaker = config.CircuitBreaker{
-			Enabled: cbEnabled, MaxRequests: cbMaxReq,
-			Interval:    time.Duration(cbIntervalMs) * time.Millisecond,
-			Timeout:     time.Duration(cbTimeoutMs) * time.Millisecond,
-			MinRequests: cbMinReq, FailureRatio: cbRatio,
-		}
+	).Scan(&cb.Enabled, &cb.MaxRequests, &cbIntervalMs, &cbTimeoutMs, &cb.MinRequests, &cb.FailureRatio)
+	if err := absent(err); err != nil {
+		return fmt.Errorf("circuit breaker: %w", err)
 	}
+	cb.Interval = time.Duration(cbIntervalMs) * time.Millisecond
+	cb.Timeout = time.Duration(cbTimeoutMs) * time.Millisecond
+	r.CircuitBreaker = cb
 
 	// Cache.
-	var cacheEnabled bool
+	var c config.Cache
 	var cacheTTLMs int64
-	var varyHeaders []string
 	err = d.pool.QueryRow(ctx,
 		`SELECT enabled, ttl_ms, vary_headers FROM route_cache WHERE route_id = $1`, r.ID,
-	).Scan(&cacheEnabled, &cacheTTLMs, &varyHeaders)
-	if err == nil {
-		r.Cache = config.Cache{
-			Enabled:     cacheEnabled,
-			TTL:         time.Duration(cacheTTLMs) * time.Millisecond,
-			VaryHeaders: varyHeaders,
-		}
+	).Scan(&c.Enabled, &cacheTTLMs, &c.VaryHeaders)
+	if err := absent(err); err != nil {
+		return fmt.Errorf("cache: %w", err)
 	}
+	c.TTL = time.Duration(cacheTTLMs) * time.Millisecond
+	r.Cache = c
 
 	return nil
 }
 
+func (d *DB) loadUpstreams(ctx context.Context, r *config.Route) error {
+	rows, err := d.pool.Query(ctx,
+		`SELECT url, weight FROM upstreams WHERE route_id = $1 ORDER BY id`, r.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u config.Upstream
+		if err := rows.Scan(&u.URL, &u.Weight); err != nil {
+			return err
+		}
+		r.Upstreams = append(r.Upstreams, u)
+	}
+	return rows.Err()
+}
+
+// absent clears the error for a row that simply does not exist.
+func absent(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return err
+}
+
 // UpsertRoute inserts or fully replaces a route and all its sub-tables.
 func (d *DB) UpsertRoute(ctx context.Context, r config.Route) error {
+	r.ApplyDefaults()
+
 	tx, err := d.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	timeoutMs := r.Timeout.Milliseconds()
-	if timeoutMs == 0 {
-		timeoutMs = 30000
-	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO routes (id, prefix, strip_prefix, load_balance, timeout_ms)
-		VALUES ($1,$2,$3,$4,$5)
+		INSERT INTO routes (id, prefix, methods, strip_prefix, load_balance, timeout_ms)
+		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (id) DO UPDATE
-		  SET prefix=$2, strip_prefix=$3, load_balance=$4, timeout_ms=$5, enabled=TRUE`,
-		r.ID, r.Match.Prefix, r.StripPrefix, r.LoadBalance, timeoutMs)
+		  SET prefix=$2, methods=$3, strip_prefix=$4, load_balance=$5, timeout_ms=$6, enabled=TRUE`,
+		r.ID, r.Match.Prefix, text(r.Match.Methods), r.StripPrefix, r.LoadBalance, r.Timeout.Milliseconds())
 	if err != nil {
 		return fmt.Errorf("upsert route: %w", err)
 	}
@@ -183,13 +223,70 @@ func (d *DB) UpsertRoute(ctx context.Context, r config.Route) error {
 		}
 	}
 
+	a := r.Auth
+	_, err = tx.Exec(ctx, `
+		INSERT INTO route_auth (route_id, type, required, algorithms, secret_env, public_key_env, jwks_url, issuer, audience)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (route_id) DO UPDATE
+		  SET type=$2, required=$3, algorithms=$4, secret_env=$5, public_key_env=$6, jwks_url=$7, issuer=$8, audience=$9`,
+		r.ID, a.Type, a.Required, text(a.Algorithms), a.SecretEnv, a.PublicKeyEnv, a.JWKSURL, a.Issuer, a.Audience)
+	if err != nil {
+		return fmt.Errorf("upsert auth: %w", err)
+	}
+
+	rl := r.RateLimit
+	_, err = tx.Exec(ctx, `
+		INSERT INTO route_rate_limit (route_id, mode, algorithm, key_by, rate, burst, fail_open)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (route_id) DO UPDATE
+		  SET mode=$2, algorithm=$3, key_by=$4, rate=$5, burst=$6, fail_open=$7`,
+		r.ID, rl.Mode, rl.Algorithm, rl.Key, rl.Rate, rl.Burst, *rl.FailOpen)
+	if err != nil {
+		return fmt.Errorf("upsert rate limit: %w", err)
+	}
+
+	cb := r.CircuitBreaker
+	_, err = tx.Exec(ctx, `
+		INSERT INTO route_circuit_breaker (route_id, enabled, max_requests, interval_ms, timeout_ms, min_requests, failure_ratio)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (route_id) DO UPDATE
+		  SET enabled=$2, max_requests=$3, interval_ms=$4, timeout_ms=$5, min_requests=$6, failure_ratio=$7`,
+		r.ID, cb.Enabled, cb.MaxRequests, cb.Interval.Milliseconds(), cb.Timeout.Milliseconds(), cb.MinRequests, cb.FailureRatio)
+	if err != nil {
+		return fmt.Errorf("upsert circuit breaker: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO route_cache (route_id, enabled, ttl_ms, vary_headers)
+		VALUES ($1,$2,$3,$4)
+		ON CONFLICT (route_id) DO UPDATE
+		  SET enabled=$2, ttl_ms=$3, vary_headers=$4`,
+		r.ID, r.Cache.Enabled, r.Cache.TTL.Milliseconds(), text(r.Cache.VaryHeaders))
+	if err != nil {
+		return fmt.Errorf("upsert cache: %w", err)
+	}
+
 	return tx.Commit(ctx)
+}
+
+// text keeps a nil slice out of a NOT NULL array column.
+func text(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // DeleteRoute soft-disables a route (sets enabled=false).
 func (d *DB) DeleteRoute(ctx context.Context, id string) error {
-	_, err := d.pool.Exec(ctx, `UPDATE routes SET enabled=FALSE WHERE id=$1`, id)
-	return err
+	tag, err := d.pool.Exec(ctx, `UPDATE routes SET enabled=FALSE WHERE id=$1 AND enabled`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Health checks the DB connection.

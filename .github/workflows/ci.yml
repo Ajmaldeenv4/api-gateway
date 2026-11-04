@@ -41,6 +41,19 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: gateway
+          POSTGRES_DB: gateway_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gateway"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -51,6 +64,7 @@ jobs:
         run: go test -race -count=1 -coverprofile=coverage.out ./...
         env:
           REDIS_ADDR: localhost:6379
+          POSTGRES_TEST_DSN: postgres://gateway:gateway@localhost:5432/gateway_test
       - name: Coverage report
         run: go tool cover -func=coverage.out | tail -1
 

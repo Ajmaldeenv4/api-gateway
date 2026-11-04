@@ -1,5 +1,5 @@
 -- API Gateway dynamic route configuration schema.
--- Apply once: psql -U gateway -d gateway -f schema.sql
+-- The gateway applies this at startup (store.Migrate), so it must stay idempotent.
 
 CREATE TABLE IF NOT EXISTS routes (
     id            TEXT        PRIMARY KEY,
@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS route_cache (
     ttl_ms       BIGINT  NOT NULL DEFAULT 60000,
     vary_headers TEXT[]  NOT NULL DEFAULT '{}'
 );
+
+-- Columns added after the first release.
+ALTER TABLE routes     ADD COLUMN IF NOT EXISTS methods        TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE route_auth ADD COLUMN IF NOT EXISTS public_key_env TEXT   NOT NULL DEFAULT '';
+ALTER TABLE route_auth ADD COLUMN IF NOT EXISTS jwks_url       TEXT   NOT NULL DEFAULT '';
+ALTER TABLE route_auth ADD COLUMN IF NOT EXISTS issuer         TEXT   NOT NULL DEFAULT '';
+ALTER TABLE route_auth ADD COLUMN IF NOT EXISTS audience       TEXT   NOT NULL DEFAULT '';
 
 -- Trigger to keep updated_at fresh.
 CREATE OR REPLACE FUNCTION set_updated_at()

@@ -6,15 +6,17 @@ import (
 )
 
 type roundRobin struct {
-	urls []*url.URL
-	n    uint64
+	noRelease
+	pool
+	n uint64
 }
 
-func newRoundRobin(urls []*url.URL) *roundRobin {
-	return &roundRobin{urls: urls}
+func newRoundRobin(p pool) *roundRobin {
+	return &roundRobin{pool: p}
 }
 
 func (r *roundRobin) Pick() (*url.URL, error) {
+	c := r.candidates()
 	i := atomic.AddUint64(&r.n, 1) - 1
-	return r.urls[i%uint64(len(r.urls))], nil
+	return r.urls[c[i%uint64(len(c))]], nil
 }

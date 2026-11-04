@@ -88,6 +88,9 @@ func New(routeID string, cfg *Config, logger *slog.Logger) *Breaker {
 		}
 	}
 
+	// A new breaker starts closed, even if it replaces an open one after a reload.
+	openCircuits.WithLabelValues(routeID).Set(0)
+
 	settings := gobreaker.Settings{
 		Name:        routeID,
 		MaxRequests: c.MaxRequests,
@@ -129,8 +132,12 @@ func (b *Breaker) State() string {
 	return b.cb.State().String()
 }
 
-// ErrOpen is returned by Execute when the circuit is open.
-var ErrOpen = gobreaker.ErrOpenState
+var (
+	// ErrOpen is returned by Execute when the circuit is open.
+	ErrOpen = gobreaker.ErrOpenState
+	// ErrTooManyRequests is returned while half-open once the probe quota is used.
+	ErrTooManyRequests = gobreaker.ErrTooManyRequests
+)
 
 // Execute runs fn through the circuit breaker.
 // Returns gobreaker.ErrOpenState if the circuit is open.
