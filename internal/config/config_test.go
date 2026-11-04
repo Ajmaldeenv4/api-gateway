@@ -51,10 +51,10 @@ routes:
   - id: a
     match: {prefix: /a/}
     upstreams: [{url: "http://b:1"}]
-    auth: {type: jwt, requried: true}
+    auth: {type: jwt, require: true}
 `
 	_, err := Load(write(t, doc))
-	if err == nil || !strings.Contains(err.Error(), "requried") {
+	if err == nil || !strings.Contains(err.Error(), "field require ") {
 		t.Fatalf("got %v", err)
 	}
 }
